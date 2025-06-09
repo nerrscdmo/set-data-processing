@@ -69,7 +69,7 @@ dat_long <- dat_long %>%
 file_in <- str_extract(file_path, "[:alpha:]+\\.xls")
 file_out <- paste0(substr(file_in, 1, nchar(file_in)-4), "_processed.csv")
 out_path <- processed_path  # defined in calling script
-file_out <- paste0(out_path, "/", file_out)
+file_out <- here::here(out_path, file_out)
 write.csv(dat_long, file_out, row.names = FALSE)
         }
 

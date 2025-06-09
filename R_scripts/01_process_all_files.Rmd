@@ -1,23 +1,13 @@
 ---
-title: "National SET Outputs"
+title: "National SET Data Processing"
 author: "Kim Cressman"
 date: "`r Sys.Date()`"
 output: 
         html_document:
                 toc: yes
 ---
-2/12/2020 - I've received GPS coordinates for some SETs that didn't have them before (the NARUNH ones). Rerunning everything with these included.  
 
-2/11/2020 - have updated all data files; they should be all set. About to run this with everything being up-to-date. have also replaced the sourced "000_functions.R" file with the most up-to-date one. Also made some updates in processing script due to tidyr updates. Everything worked running step by step, so I'm going to knit this and keep the record. But data should be all set now.    
-
-6/26/19 - Have updated site names in a few data/metadata files, so am rerunning this.
--- Have also inserted code to wrangle and combine metadata files.  
-
-7/14/19 - another update, for metadata only:  
-
-+  pulling out NAVD88 Ground and Receiver elevation. There is some confusion about what each one represents but it can still be useful as a y-axis to see relative change related to elevation. 9 reserves have NAVD88 receiver elevations and 6 have ground. 2 of the ones that have ground elevation have *only* that, and not receiver elevation - so 11 reserves (12 once I insert GND's into our metadata) have *something*.  
-+  PDB has different "user-friendly SET names"  
-
+6/9/2025 - updating all code to process SETr data for a dashboard. Will incorporate flexibility so hopefully this can be used on updated files in the future. For the moment, these are all files from SETr; many of which end in 2016 or 2017.  
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -42,7 +32,7 @@ library(janitor)
 Find and list the raw files.  
 
 ```{r}
-raw_path <- here::here("data", "raw_reserve_level")
+raw_path <- here::here("data", "01_reserve_raw")
 raw_files <- dir(raw_path, pattern = "set.xls")
 ```
 
@@ -50,13 +40,13 @@ raw_files <- dir(raw_path, pattern = "set.xls")
 Process them and output them to the `processed_reserve_level` directory.  
 
 ```{r}
-processed_path <- here::here("data", "processed_reserve_level")
+processed_path <- here::here("data", "02_reserve_processed")
 sourced_path <- here::here("R_scripts", "sourced")
-processing_script <- paste0(sourced_path, "/01_natl_process_raw_data.R")
+processing_script <- here::here(sourced_path, "01_natl_process_raw_data.R")
 
 # for each raw file, source the processing script
 for(i in seq_along(raw_files)){
-        file_path <- paste0(raw_path, "/", raw_files[i])
+        file_path <- here::here(raw_path, raw_files[i])
         source(processing_script)
         message(paste("\n", file_out, "\nhas been produced \n"))
 }
@@ -77,7 +67,7 @@ processed_list <- list()
 
 for(i in seq_along(processed_files)){
         # read in file
-        file_path <- paste0(processed_path, "/", processed_files[i])
+        file_path <- here::here(processed_path, processed_files[i])
         dat <- read.csv(file_path, stringsAsFactors = FALSE)
         
         # if there isn't a column for reserve, pull it from the file name
@@ -147,7 +137,7 @@ sum(is.na(dat_all$year)) == nrow(failed_parsing)
 Write out to a csv for later use.  
 
 ```{r}
-out_path <- here::here("data", "processed_combined", "all_sites.csv")
+out_path <- here::here("data", "03_combined_processed", "all_sites.csv")
 write.csv(dat_all2, out_path, row.names = FALSE)
 ```
 
@@ -157,7 +147,7 @@ write.csv(dat_all2, out_path, row.names = FALSE)
 Find and list the raw files.  
 
 ```{r}
-raw_path <- here::here("metadata", "reserve_level")
+raw_path <- here::here("data", "01b_reserve_metadata")
 raw_files <- dir(raw_path, pattern = "set_metadata.xls")
 ```
 
@@ -167,7 +157,7 @@ Read them in and combine them.
 combined_list <- list()
 
 for(i in seq_along(raw_files)){
-        in_path <- here::here("metadata", "reserve_level", raw_files[i])
+        in_path <- here::here(raw_path, raw_files[i])
         dat <- read_excel(in_path) %>% 
                 clean_names() %>% 
                 select(reserve,
@@ -191,7 +181,7 @@ metadat_all <- bind_rows(combined_list)
 Write that out.  
 
 ```{r}
-out_path <- here::here("metadata", "combined", "all_sites_metadata.csv")
+out_path <- here::here("data", "03_combined_processed", "all_sites_metadata.csv")
 write.csv(metadat_all, out_path, row.names = FALSE)
 ```
 
