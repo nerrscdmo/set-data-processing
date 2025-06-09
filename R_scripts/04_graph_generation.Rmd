@@ -1,0 +1,219 @@
+---
+title: "Plot Generation - all reserves, all SETs"
+author: "Kim Cressman"
+date: "`r Sys.Date()`"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+I'm going to loop through all reserves and spit out consistent plots for all of them. Using Rmd so they all show up in one document, but I'll also be saving them out.  
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(janitor)
+library(readxl)
+library(lubridate)
+library(here)
+library(ggplot2)
+library(forcats)
+library(leaflet)
+library(mapview)
+source(here::here("R_scripts", "sourced", "000_functions.R"))
+```
+
+
+Read in metadata, sea level files, and file with rates and CIs for each SET.  
+
+```{r}
+in_path <- here::here("data", "intermediate", "rate_summary.csv")
+dat_rates <- read.csv(in_path, stringsAsFactors = FALSE)
+
+in_path <- here::here("data", "intermediate", "rate_comparisons.csv")
+dat_slr_comps <- read.csv(in_path, stringsAsFactors = FALSE)
+# this has slr and 19-yr rates and CIs
+
+in_path <- here::here("data", "processed_combined", "all_sites.csv")
+dat_all <- read.csv(in_path, stringsAsFactors = FALSE) %>% 
+  mutate(date = lubridate::ymd(date))
+```
+
+
+
+```{r}
+reserves <- unique(dat_rates$reserve)
+```
+
+
+Loop through reserves and:  
+
++  create the "star wars" rate summary graph  
++  perform cumulative change calculations and make that graph  
++  print the maps
+
+```{r}
+for(i in seq_along(reserves)){
+        
+        # subset the data
+        to_plo <- dat_rates[dat_rates$reserve == reserves[i], ]
+        to_calc <- dat_all[dat_all$reserve == reserves[i], ]
+        to_compare <- dat_slr_comps[dat_slr_comps$reserve == reserves[i], 
+                                    c("slr_rate", "slr_CI_low", "slr_CI_high",
+                                      "slr_19yr", "yr19_CI_low", "yr19_CI_high")]
+        to_compare <- dplyr::distinct(to_compare)
+
+        
+        # get the correct order of SETs for the summary graph:
+        
+        # first: no NAs in either column; use user-friendly SET ID and put it in order
+        if(!anyNA(to_plo$numerical_order) & !anyNA(to_plo$user_friendly_set_name)){
+                a <- forcats::fct_reorder(to_plo$user_friendly_set_name,
+                                          desc(to_plo$numerical_order))
+                to_plo$graph_set_name <- a
+                
+        # second: no NAs in numerical_order only: use set_id, but put it in order
+        } else if (!anyNA(to_plo$numerical_order)) {
+                b <- forcats::fct_reorder(to_plo$set_id,
+                                          desc(to_plo$numerical_order))
+                to_plo$graph_set_name <- b
+            
+                
+        # last: if neither are given, just use set names but make them factors and reverse them so the first in the alphabet will be at the top
+        } else {
+                c <- factor(to_plo$set_id)
+                d <- forcats::fct_relevel(c, rev)
+                to_plo$graph_set_name <- d
+        }
+        
+        
+        
+        # perform cumulative change calculations and get the correct SET order for the cumulative change graph (only using SET ID for now)
+        cumu_temp <- calc_change_cumu(to_calc)
+        set_temp <- cumu_temp$set
+        if (!anyNA(to_plo$numerical_order)){
+          mdat_sub <- select(to_plo, set_id, numerical_order)
+          set_temp <- left_join(set_temp, mdat_sub) %>% 
+            mutate(set_id = fct_reorder(set_id, numerical_order)) %>% 
+            select(-numerical_order)
+          }    
+        
+
+        # make the plots
+        
+        # summary plot, not colored by veg
+        p <- plot_rate_comps(data = to_plo,
+                             plot_type = 4,
+                             set_ids = graph_set_name,
+                             set_ci_low = CI_low,
+                             set_ci_high = CI_high,
+                             rates = rate,
+                             comp1 = to_compare$slr_rate,
+                             comp1_ci_low = to_compare$slr_CI_low,
+                             comp1_ci_high = to_compare$slr_CI_high,
+                             comp2 = to_compare$slr_19yr,
+                             comp2_ci_low = to_compare$yr19_CI_low,
+                             comp2_ci_high = to_compare$yr19_CI_high)
+        
+        p <- p +
+          ggtitle(paste0(reserves[i], ", Summary of SET rates of change"))
+          
+
+       
+        # print and save the plot 
+        print(p)
+        filename <- paste0(reserves[i], "_summary_plot.png")
+        out_path <- here::here("R_output", "figures", "summary_plots", filename)
+        ggsave(filename = out_path, plot = p, width = 7, height = 5, units = "in")
+        
+        
+        
+        # summary plot with veg
+        if(!anyNA(to_plo$co_dominant_species1)){
+          p <- plot_rate_comps(data = to_plo,
+                               plot_type = 4,
+                               set_ids = graph_set_name,
+                               set_ci_low = CI_low,
+                               set_ci_high = CI_high,
+                               rates = rate,
+                               comp1 = to_compare$slr_rate,
+                               comp1_ci_low = to_compare$slr_CI_low,
+                               comp1_ci_high = to_compare$slr_CI_high,
+                               comp2 = to_compare$slr_19yr,
+                               comp2_ci_low = to_compare$yr19_CI_low,
+                               comp2_ci_high = to_compare$yr19_CI_high,
+                               color_by_veg = TRUE,
+                               veg = co_dominant_species1)
+          
+          p <- p +
+            ggtitle(paste0(reserves[i], ", Summary of SET rates of change"))
+          
+          # print and save the plot 
+          print(p)
+          filename <- paste0(reserves[i], "_summary_plot_veg.png")
+          out_path <- here::here("R_output", "figures", "summary_plots", filename)
+          ggsave(filename = out_path, plot = p, width = 9, height = 5, units = "in")
+        }
+        
+        
+        ### CUMULATIVE CHANGE GRAPH
+        
+        # default has linear regression on it; i'll leave it because we don't need
+        # 10 versions of every graph for every reserve in this report
+        q <- plot_cumu_set(cumu_temp$set) +
+          ggtitle(paste0(reserves[i], ", Cumulative Change since first reading"))
+        
+        # print and save it
+        print(q)
+        filename <- paste0(reserves[i], "_cumu_change_plot.png")
+        out_path <- here::here("R_output", "figures", "cumu_change_plots", filename)
+        ggsave(filename = out_path, plot = q, width = 7, height = 8, units = "in")
+        
+        
+        
+        # and the simplified version
+        
+        # first have to get the sea level line set up
+        # generate a SET-specific intercept based on the first date of sampling at that SET
+        # also add in slope because geom_abline doesn't work otherwise
+        intercepts <- set_temp %>% 
+          group_by(set_id) %>% 
+          summarize(min_date = as.integer(min(date))) %>% 
+          mutate(intercept = 0 - (to_compare$slr_rate/365.25*min_date),
+                 slope = to_compare$slr_rate/365.25)
+        
+        # now to graph it
+        q <- ggplot(set_temp, aes(x = date, y = mean_cumu)) +
+          geom_line(col = 'gray70') +
+          facet_wrap(~set_id, ncol = 4) +
+          labs(title = paste0(reserves[i], ", Cumulative Change since first reading"), 
+               subtitle = 'light gray represents data; blue has slope of SET change; \nred has slope of long-term sea level rise',
+               x = 'Date',
+               y = 'Change since first reading (mm)') +
+          theme_classic() +
+          geom_smooth(se = FALSE, method = 'lm', 
+                      col = 'steelblue4',
+                      size = 1) +
+          geom_abline(data = intercepts,
+                      aes(intercept = intercept,
+                          slope = slope),
+                      color = "red3",
+                      size = 1)
+        
+        print(q)
+        filename <- paste0(reserves[i], "_cumu_change_plot_simplified.png")
+        out_path <- here::here("R_output", "figures", "cumu_change_plots", filename)
+        ggsave(filename = out_path, plot = q, width = 7, height = 8, units = "in")
+        
+}
+
+```
+
+
+Not pulling the maps back in here because I'll just pull them in to the final report. Here I just want to verify that everything looks good.  

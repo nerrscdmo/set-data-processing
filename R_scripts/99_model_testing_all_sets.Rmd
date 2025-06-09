@@ -1,0 +1,286 @@
+---
+title: "National SET Outputs 2"
+author: "Kim Cressman"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    toc: yes
+  html_document:
+    toc: yes
+    toc_float: yes
+---
+
+6/26/19 - made some updates to station names in data files, because there were some duplicates. This may change counts and possibly trends at a couple stations. 
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message = FALSE, warning = FALSE}
+
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(readxl)
+library(stringr)
+library(lubridate)
+library(here)
+library(nlme)
+```
+
+Read in combined data file.  
+
+```{r}
+in_path <- here::here("data", "processed_combined", "all_sites.csv")
+dat_all2 <- read.csv(in_path, stringsAsFactors = FALSE) %>% 
+    mutate(date = lubridate::ymd(paste(year, month, day, sep = "-")),
+           date2 = lubridate::decimal_date(date))
+```
+
+Filter to only keep sites with at least 5 measurements over at least 4.5 years.  
+
+```{r}
+to_keep <- dat_all2 %>% 
+       group_by(reserve, set_id, arm_position, pin_number) %>% 
+        summarize(count = n(),
+                  daterange = max(date2) - min(date2)) %>% 
+        filter(count >= 5,
+               daterange >= 4.5)
+
+
+to_analyze <- dat_all2 %>% 
+        filter(set_id %in% unique(to_keep$set_id))
+```
+
+Working with how many SETs?  
+
+```{r}
+length(unique(to_analyze$set_id))
+```
+
+At how many reserves?  
+
+```{r}
+length(unique(to_analyze$reserve))
+```
+
+
+Run models: one with pins nested within arms; one without arm nesting (only pins as random effects).  
+
+```{r}
+models_fully_nested <- to_analyze %>%
+    group_by(reserve, set_id) %>%
+    do(mod = lme(pin_height ~ date, data = ., random = ~1|arm_position/arm_pin, na.action = na.omit))
+
+models_no_arms <- to_analyze %>%
+    group_by(reserve, set_id) %>%
+    do(mod = lme(pin_height ~ date, data = ., random = ~1|arm_pin, na.action = na.omit))
+```
+
+# Variance Components:  fully spec'd  
+
+Get some diagnostics from the fully specified models, along with number of measurements and number of years of data. Arranged with sites that throw errors at the top.  
+
+```{r}
+var_comps <- data.frame(reserve = character(),
+                        set_id = character(),
+                        arm_int = numeric(),
+                        pin_int = numeric(),
+                        resid = numeric(),
+                        works = character(),
+                        n_readings = numeric(),
+                        n_years = numeric(),
+                        stringsAsFactors = FALSE)
+
+for(i in 1:nrow(models_fully_nested)){
+        vari <- VarCorr(models_fully_nested$mod[[i]])
+        var_comps[i, "reserve"] <- models_fully_nested[i, "reserve"]
+        var_comps[i, "set_id"] <- models_fully_nested[i, "set_id"]
+        var_comps[i, "arm_int"] <- vari[2, 1]
+        var_comps[i, "pin_int"] <- vari[4, 1]
+        var_comps[i, "resid"] <- vari[5, 1]
+        var_comps[i, "works"] <- ifelse(class(models_fully_nested$mod[[i]]$apVar) == "character",
+                                        "ERROR",
+                                        "ok")
+        metadat <- to_keep[to_keep$reserve == models_fully_nested$reserve[i] & to_keep$set_id == models_fully_nested$set_id[i], ]
+        var_comps[i, "n_readings"] <- max(metadat$count)
+        var_comps[i, "n_years"] <- round(max(metadat$daterange), 1)
+}
+```
+
+```{r}
+sum(var_comps$works == "ERROR")
+nrow(var_comps)
+```
+
+Okay, so only 22 out of 130 sites throw errors when we use the fully specified model (pins nested within arms as random effects). That's not bad. 
+
+To show what I'm pulling out of the various bits and pieces of the variance component, here's the SET that shows up at the top. I've pulled the "Variance" column and referred to the arm_position (Intercept) row as `arm_int`; the pin_number (Intercept) value as `pin_int`, and the Residual as `resid`.  
+
+```{r}
+pick_me <- which(models_fully_nested$set_id == "pn_13")
+VarCorr(models_fully_nested$mod[[pick_me]])
+```
+
+
+Here are all those variance components in data frame form, with error-throwing SETs (non-positive definite covariance matrix) at the top:  
+
+```{r}
+var_comps %>%
+        mutate_at(c("arm_int", "pin_int", "resid"), as.numeric) %>% 
+        mutate(var_lowest = case_when(arm_int > pin_int ~ pin_int,
+                                      TRUE ~ arm_int)) %>% 
+        arrange(works, reserve, set_id) %>% 
+        knitr::kable(digits = 3)
+comps1 <- var_comps %>% 
+    select(reserve, set_id, works_full = works)
+```
+
+
+***
+***
+
+# Variance Components: ignored arms  
+
+Now get the same specs for models where we ignored arm position.  
+
+```{r}
+var_comps <- data.frame(reserve = character(),
+                        set_id = character(),
+                        pin_int = numeric(),
+                        resid = numeric(),
+                        works = character(),
+                        n_readings = numeric(),
+                        n_years = numeric(),
+                        stringsAsFactors = FALSE)
+
+for(i in 1:nrow(models_no_arms)){
+        vari <- VarCorr(models_no_arms$mod[[i]])
+        var_comps[i, "reserve"] <- models_no_arms[i, "reserve"]
+        var_comps[i, "set_id"] <- models_no_arms[i, "set_id"]
+        var_comps[i, "pin_int"] <- vari[1, 1]
+        var_comps[i, "resid"] <- vari[2, 1]
+        var_comps[i, "works"] <- ifelse(class(models_no_arms$mod[[i]]$apVar) == "character",
+                                        "ERROR",
+                                        "ok")
+        metadat <- to_keep[to_keep$reserve == models_no_arms$reserve[i] & to_keep$set_id == models_no_arms$set_id[i], ]
+        var_comps[i, "n_readings"] <- max(metadat$count)
+        var_comps[i, "n_years"] <- round(max(metadat$daterange), 1)
+}
+```
+
+```{r}
+sum(var_comps$works == "ERROR")
+nrow(var_comps)
+var_comps %>%
+        mutate_at(c("pin_int", "resid"), as.numeric) %>%  
+        arrange(works, reserve, set_id) %>% 
+        knitr::kable(digits = 3)
+comps2 <- var_comps %>% 
+    select(reserve, set_id, works_no_arms = works)
+```
+
+***
+***
+
+# Rate and CIs from both models  
+
+
+Pull out rates and CIs from both models. Let's see how similar they are. Sort by which ones threw errors with the fully specified ones.  
+
+```{r}
+lmm_out_full <- models_fully_nested %>% 
+  mutate(rate_full = intervals(mod, which = "fixed")$fixed["date", 2] * 365.25,
+         CI_low_full = intervals(mod, which = "fixed")$fixed["date", 1] * 365.25,
+         CI_high_full = intervals(mod, which = "fixed")$fixed["date", 3] * 365.25,
+         CI_width_full = CI_high_full - CI_low_full) %>% 
+  select(-mod)
+
+lmm_out_no_arms <- models_no_arms %>% 
+  mutate(rate_no_arms = intervals(mod, which = "fixed")$fixed["date", 2] * 365.25,
+         CI_low_no_arms = intervals(mod, which = "fixed")$fixed["date", 1] * 365.25,
+         CI_high_no_arms = intervals(mod, which = "fixed")$fixed["date", 3] * 365.25,
+         CI_width_no_arms = CI_high_no_arms - CI_low_no_arms) %>% 
+  select(-mod)
+
+lmm_out_all <- full_join(lmm_out_full, lmm_out_no_arms, by = c("reserve", "set_id")) %>% 
+    mutate(rate_diff = abs(rate_no_arms - rate_full),
+           CI_diff = abs(CI_width_no_arms - CI_width_full)) %>% 
+    left_join(., comps1, by = c("reserve", "set_id")) %>% 
+    left_join(., comps2, by = c("reserve", "set_id")) %>% 
+    arrange(works_full, works_no_arms, reserve, set_id)
+```
+
+```{r}
+lmm_out_all %>% 
+  select(reserve, set_id, rate_full, rate_diff, CI_diff, works_full, works_no_arms) %>% 
+  knitr::kable(digits = 4)
+```
+
+The biggest difference we see in rates between model types is:  
+```{r}
+max(lmm_out_all$rate_diff)
+```
+
+The biggest difference in CI width between model types is:  
+```{r}
+max(lmm_out_all$CI_diff)
+```
+
+
+***
+***
+
+# Graphs  
+
+
+```{r, fig.width = 8, fig.height = 11, message = FALSE, warning = FALSE}
+library(ggplot2)
+library(naniar)
+
+ind_reserves <- unique(dat_all2$reserve)
+
+for(i in seq_along(ind_reserves)){
+        to_plot <- filter(dat_all2, reserve == ind_reserves[i])
+        p <- ggplot(to_plot) +
+                geom_point(aes(x = date, y = pin_height)) +
+                geom_smooth(aes(x = date, y = pin_height), method = "lm", se = FALSE) +
+                facet_wrap(~ set_id, ncol = 4, scales = "free") +
+                ggtitle(ind_reserves[i]) +
+                theme_bw()
+        print(p)
+}
+
+```
+
+
+Include missing values
+
+```{r, fig.width = 8, fig.height = 11, message = FALSE, warning = FALSE}
+for(i in seq_along(ind_reserves)){
+        to_plot <- filter(dat_all2, reserve == ind_reserves[i])
+        p <- ggplot(to_plot, aes(x = date, y = pin_height)) +
+            geom_smooth(method = "lm", se = FALSE) +
+            geom_miss_point(alpha = 0.3) +
+            facet_wrap(~ set_id, ncol = 4, scales = "free") +
+            ggtitle(ind_reserves[i]) +
+            theme_bw()
+        print(p)
+}
+```
+
+
+How many values are missing per individual arm in each SET?  
+
+```{r}
+missings <- dat_all2 %>% 
+    group_by(reserve, set_id, arm_position) %>% 
+    summarize(count_missing = sum(is.na(pin_height)),
+              proportion_missing = count_missing / n())
+
+missings %>% 
+    filter(count_missing > 0) %>% 
+    knitr::kable()
+```
+

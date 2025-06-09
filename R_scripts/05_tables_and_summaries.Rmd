@@ -1,0 +1,328 @@
+---
+title: "National Synthesis of SET data from SETr Project"
+date: "`r Sys.Date()`"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(lubridate)
+library(here)
+library(forcats)
+library(flextable)
+library(officer)
+```
+
+
+```{r}
+# read in files
+
+in_path <- here::here("data", "intermediate", "rate_summary.csv")
+dat_rates <- read.csv(in_path, stringsAsFactors = FALSE)
+
+in_path <- here::here("data", "intermediate", "rate_comparisons.csv")
+dat_slr_comps <- read.csv(in_path, stringsAsFactors = FALSE)
+# this has slr and 19-yr rates and CIs
+
+in_path <- here::here("data", "processed_combined", "all_sites.csv")
+dat_all <- read.csv(in_path, stringsAsFactors = FALSE) %>% 
+  mutate(date = lubridate::ymd(date))
+
+in_path <- here::here("metadata", "slr_rates.csv")
+slr_mdat <- read.csv(in_path, stringsAsFactors = FALSE) %>% 
+  janitor::clean_names()
+```
+
+# Summary of SETs in this analysis  
+
+Sixteen data files from 15 Reserves and partners were submitted, containing data for 187 SETs (Table 1). Criteria for inclusion in this analysis required at least 5 observations over at least 4.5 years to generate an accurate depiction of trend. 146 of the 187 SETs had enough data for these rate calculations. Table 2 represents results of rate calculations; SETs that had too few observations for inclusion are tallied in the column "not enough data".
+
+```{r}
+regions <- tribble(
+        ~reserve, ~full_name, ~state, ~Region,
+        "APA", "Apalachicola Bay", "FL", "Gulf and Southeast",
+        "CBM", "Chesapeake Bay, MD", "MD", "Mid-Atlantic",
+        "CBV", "Chesapeake Bay, VA", "VA", "Mid-Atlantic",
+        "DEL", "Delaware", "DE", "Mid-Atlantic",
+        "ELK", "Elkhorn Slough", "CA", "West",
+        "GND", "Grand Bay", "MS", "Gulf and Southeast",
+        "GRB", "Great Bay", "NH", "Northeast",
+        "GTM", "Guana Tolomato Matanzas", "FL", "Gulf and Southeast",
+        "MAR", "Mission Aransas", "TX", "Gulf and Southeast",
+        "NAR", "Narragansett Bay", "RI", "Northeast",
+        "NARUNH", "NAR - Univ of NH partner", "RI", "Northeast",
+        "PDB", "Padilla Bay", "WA", "West",
+        "SOS", "South Slough", "OR", "West",
+        "WEL", "Wells", "ME", "Northeast",
+        "WKB", "Weeks Bay", "AL", "Gulf and Southeast",
+        "WQB", "Waquoit Bay", "MA", "Northeast"
+)
+
+dat_slr_comps <- left_join(dat_slr_comps, regions, by = "reserve")
+```
+
+
+```{r}
+slr_mdat_sub <- slr_mdat %>% 
+  select(reserve, nearest_nwlon_station, nwlon_station_number)
+  
+  
+  
+mdat <- dat_all %>% 
+  group_by(reserve) %>% 
+  summarize(n_sets = length(unique(set_id)),
+            first_sample_date = as.character(min(date)),
+            latest_sample_date = as.character(max(date)),
+            years_measured = round(max(date2) - min(date2), 2)) %>% 
+  left_join(regions, by = "reserve") %>% 
+  left_join(slr_mdat_sub, by = "reserve") %>% 
+  select(reserve, state, n_sets, nwlon_station_number,
+         first_sample_date, latest_sample_date, years_measured,
+         Region) %>% 
+  arrange(Region)
+```
+
+```{r}
+for_group_table <- as_grouped_data(mdat,
+                                   groups = c("Region"))
+
+
+mdat_table <- as_flextable(for_group_table) %>% 
+        bold(j = 1, i = ~ !is.na(Region), bold = TRUE, part = "body" ) %>% 
+        bold(part = "header", bold = TRUE ) %>% 
+        set_header_labels(
+                reserve = "Reserve",
+                state = "State",
+                n_sets = "# SETs",
+                nwlon_station_number = "Nearest NWLON Station",
+                first_sample_date = "First Sample Date",
+                latest_sample_date = "Last Sample Date",
+                years_measured = "# years measured")
+
+mdat_table <- mdat_table %>% 
+        bold(part = "header", bold = TRUE ) %>% 
+        fontsize(size = 10, part = "header") %>%
+        fontsize(size = 9, part = "body") %>% 
+        fontsize(size = 10, j = 1, i = ~ !is.na(Region), part = "body") 
+
+
+std_border = fp_border(color = "gray80", width = 1)
+mdat_table <- mdat_table %>% 
+  theme_zebra() %>% 
+  border_inner_v(part = "all", border = std_border) %>% 
+  border_outer(border = std_border, part = "all") %>% 
+  align(align = "center", part = "all") %>% 
+  align(align = "left", part = "body", i = ~ !is.na(Region)) %>% 
+  width(width = c(0.8, 0.8, 0.8, 1, 1, 1, 0.8))
+
+mdat_table
+```
+
+
+
+```{r}
+slr_rates <- dat_slr_comps %>% 
+        mutate(slr_rate = paste(slr_rate, "+/-", (slr_CI_high - slr_CI_low)/2),
+               yr19_rate = paste(slr_19yr, "+/-", (yr19_CI_high - yr19_CI_low)/2)) %>% 
+        select(Region,
+               reserve, 
+               slr_rate, 
+               yr19_rate) %>% 
+        distinct() 
+        
+
+lt_summary <- dat_slr_comps %>% 
+        group_by(reserve) %>% 
+        summarize(total_SETs = n(),
+                  exceeding_confident = sum(dir_slr == "inc_sig"),
+                  exceeding_not_confident = sum(dir_slr == "inc_nonsig"),
+                  NOT_exceeding_confident = sum(dir_slr == "dec_sig"),
+                  NOT_exceeding_not_confident = sum(dir_slr == "dec_nonsig"),
+                  not_enough_info = sum(dir_slr == "not_enough_info")) %>%
+        ungroup()
+
+long_term_slr_comp <- right_join(slr_rates, lt_summary, by = "reserve") %>% 
+        select(-yr19_rate) %>% 
+        arrange(Region, reserve)
+
+yr19_summary <- dat_slr_comps %>% 
+        group_by(reserve) %>% 
+        summarize(total_SETs = n(),
+                  exceeding_confident = sum(dir_19yr == "inc_sig"),
+                  exceeding_not_confident = sum(dir_19yr == "inc_nonsig"),
+                  NOT_exceeding_confident = sum(dir_19yr == "dec_sig"),
+                  NOT_exceeding_not_confident = sum(dir_19yr == "dec_nonsig"),
+                  not_enough_info = sum(dir_19yr == "not_enough_info")) %>%
+        ungroup()
+
+yr19_slr_comp <- right_join(slr_rates, yr19_summary, by = "reserve") %>% 
+        select(-slr_rate) %>% 
+        arrange(Region, reserve)
+```
+
+
+
+# Comparison to local long-term sea level rise  
+
+Some language, probably pulled from other reports and/or the workflow guide, about these being rates from the period of record at the closest NWLON Station, calculated by NOAA COOPS, etc etc
+
+
+```{r}
+for_group_table <- as_grouped_data(long_term_slr_comp,
+                                   groups = c("Region"))
+```
+
+```{r}
+slr_longterm <- as_flextable(for_group_table) %>% 
+        bold(j = 1, i = ~ !is.na(Region), bold = TRUE, part = "body" ) %>% 
+        bold(part = "header", bold = TRUE ) %>% 
+        set_header_labels(
+                reserve = "Reserve",
+                slr_rate = "SLR rate",
+                total_SETs = "# SETs",
+                exceeding_confident = "# SETs Higher",
+                exceeding_not_confident = "# SETs Higher",
+                NOT_exceeding_confident = "# SETs Lower",
+                NOT_exceeding_not_confident = "# SETs Lower",
+                not_enough_info = "Not enough data")
+slr_longterm <- add_header_row(slr_longterm, values = c("", "long-term", "total", "No CI overlap", "CI overlap",
+                                  "No CI overlap", "CI overlap", ""), top = FALSE) %>% 
+        bold(part = "header", bold = TRUE ) %>% 
+        fontsize(size = 11, i = 1, part = "header") %>%
+        fontsize(size = 10, i = 2, part = "header") %>% 
+        fontsize(size = 10, i = 1, j = 8, part = "header") %>% 
+        fontsize(size = 9, part = "body") %>% 
+        fontsize(size = 10, j = 1, i = ~ !is.na(Region), part = "body")
+slr_longterm <- merge_at(slr_longterm, i = 1, j = 4:5, part = "header")
+slr_longterm <- merge_at(slr_longterm, i = 1, j = 6:7, part = "header")
+
+
+std_border = fp_border(color = "gray80", width = 1)
+slr_longterm <- slr_longterm %>% 
+  theme_zebra() %>% 
+  border_inner_v(part = "all", border = std_border) %>% 
+  border_outer(border = std_border, part = "all") %>% 
+  align(align = "center", part = "all") %>% 
+  align(align = "left", part = "body", i = ~ !is.na(Region)) %>% 
+  width(width = c(0.8, 0.9, rep(0.7, 6)))
+
+slr_longterm
+```
+
+<br>  
+
+
+
+```{r, fig.cap = "Figure 1. Proportion of SETs at each participating reserve whose rate of elevation change was greater than (blue) / less than (red) long-term sea level change at a nearby NWLON station. Shading depends on whether confidence intervals overlapped (see text for more detail; dark color = no overlapping of CIs; ligher shading = CIs overlapped)."}
+knitr::include_graphics(here::here("R_output", "figures", "maps", "mapSLR_all.png"))
+```
+
+Region-level maps will be at the end  
+
+
+# Comparison to local 19-year water level change  
+
+Some language about how this was calculated, and why, and how I verified that my calculations for long-term change matched so we knew this was the same method
+
+```{r}
+for_group_table <- as_grouped_data(yr19_slr_comp,
+                                   groups = c("Region"))
+```
+
+```{r}
+yr19_slr <- as_flextable(for_group_table) %>% 
+        bold(j = 1, i = ~ !is.na(Region), bold = TRUE, part = "body" ) %>% 
+        bold(part = "header", bold = TRUE ) %>% 
+        set_header_labels(
+                reserve = "Reserve",
+                yr19_rate = "water level",
+                total_SETs = "# SETs",
+                exceeding_confident = "# SETs Higher",
+                exceeding_not_confident = "# SETs Higher",
+                NOT_exceeding_confident = "# SETs Lower",
+                NOT_exceeding_not_confident = "# SETs Lower",
+                not_enough_info = "Not enough data")
+yr19_slr <- add_header_row(yr19_slr, values = c("", "19-yr rate of change", "total", "No CI overlap", "CI overlap",
+                                  "No CI overlap", "CI overlap", ""), top = FALSE) %>% 
+        bold(part = "header", bold = TRUE ) %>% 
+        fontsize(size = 11, i = 1, part = "header") %>%
+        fontsize(size = 10, i = 2, part = "header") %>% 
+        fontsize(size = 10, i = 1, j = 8, part = "header") %>% 
+        fontsize(size = 9, part = "body") %>% 
+        fontsize(size = 10, j = 1, i = ~ !is.na(Region), part = "body")
+yr19_slr <- merge_at(yr19_slr, i = 1, j = 4:5, part = "header")
+yr19_slr <- merge_at(yr19_slr, i = 1, j = 6:7, part = "header")
+
+
+std_border = fp_border(color = "gray80", width = 1)
+yr19_slr <- yr19_slr %>% 
+  theme_zebra() %>% 
+  border_inner_v(part = "all", border = std_border) %>% 
+  border_outer(border = std_border, part = "all") %>% 
+  align(align = "center", part = "all") %>% 
+  align(align = "left", part = "body", i = ~ !is.na(Region)) %>% 
+  width(width = c(0.8, 0.9, rep(0.7, 6)))
+
+yr19_slr
+```
+
+
+<br>  
+
+
+
+```{r, fig.cap = "Figure 2. Proportion of SETs at each participating reserve whose rate of elevation change was greater than (blue) / less than (red) 19-year water level change. Shading depends on whether confidence intervals overlapped (see text for more detail; dark color = no overlapping of CIs; ligher shading = CIs overlapped)."}
+knitr::include_graphics(here::here("R_output", "figures", "maps", "map19yr_all.png"))
+```
+
+Region-level maps will be at the end  
+
+
+## Region-level maps, long-term SLR  
+
+
+
+```{r, fig.cap = "Figure 3. Gulf and Southeast region compared to long-term SLR."}
+knitr::include_graphics(here::here("R_output", "figures", "maps", "mapSLR_gulf.png"))
+```
+
+```{r, fig.cap = "Figure 4. Mid-Atlantic region compared to long-term SLR."}
+knitr::include_graphics(here::here("R_output", "figures", "maps", "mapSLR_midatl.png"))
+```
+
+```{r, fig.cap = "Figure 5. Northeast region compared to long-term SLR."}
+knitr::include_graphics(here::here("R_output", "figures", "maps", "mapSLR_ne.png"))
+```
+
+```{r, fig.cap = "Figure 6. West Coast region compared to long-term SLR."}
+knitr::include_graphics(here::here("R_output", "figures", "maps", "mapSLR_west.png"))
+```
+
+
+## Region-level maps, 19-year water level change  
+
+
+```{r, fig.cap = "Figure 7. Gulf and Southeast region compared to 19-year water level change."}
+knitr::include_graphics(here::here("R_output", "figures", "maps", "map19yr_gulf.png"))
+```
+
+```{r, fig.cap = "Figure 8. Mid-Atlantic region compared to 19-year water level change."}
+knitr::include_graphics(here::here("R_output", "figures", "maps", "map19yr_midatl.png"))
+```
+
+```{r, fig.cap = "Figure 9. Northeast region compared to 19-year water level change."}
+knitr::include_graphics(here::here("R_output", "figures", "maps", "map19yr_ne.png"))
+```
+
+```{r, fig.cap = "Figure 10. West Coast region compared to 19-year water level change."}
+knitr::include_graphics(here::here("R_output", "figures", "maps", "map19yr_west.png"))
+```
