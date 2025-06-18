@@ -172,41 +172,46 @@ lmm_out %>%
 
 # Join rates to metadata  
 
+Also pull out dates.  
+
+```{r}
+all_dates <- dat |> 
+    summarize(.by = c(reserve, set_id),
+              start_date = min(date),
+              end_date = max(date),
+              ts_length = round(max(date2) - min(date2), 1))
+```
+
+Join them to metadata.  
+
+```{r}
+mdat <- full_join(mdat, all_dates)
+```
+
+
 Need to do a full join; there are some sites in the data that aren't in metadata; and some sites in metadata that didn't have enough data to be analyzed but we can put them on a map with some icon.  
 
 ```{r}
 all_out <- full_join(mdat, lmm_out, by = c("reserve", "set_id"))
 ```
 
-Write that out to a file.  
 
-# WHAT WOULD BE GREAT  
-
-as of 6/9/2025 - would be nice to add start date and end date for each set,
-to get length of time series - useful for filtering
-also maybe something to let people filter by which vegetation species are dominant
+Get rid of any sites that are missing *both* a rate and a location.  (commented out)
 
 ```{r}
-write.csv(all_out, here::here("data", "04_rates", "all_rates_and_metadata.csv"))
+# # find 'em
+# ditch <- all_out %>% 
+#   filter(is.na(lat),
+#          is.na(rate)) %>% 
+#   select(reserve, set_id)
+# 
+# # ditch 'em
+# all_out <- all_out %>% 
+#   filter(!(set_id %in% ditch$set_id))
 ```
 
 
-Get rid of any sites that are missing *both* a rate and a location.  
-
-```{r}
-# find 'em
-ditch <- all_out %>% 
-  filter(is.na(lat),
-         is.na(rate)) %>% 
-  select(reserve, set_id)
-
-# ditch 'em
-all_out <- all_out %>% 
-  filter(!(set_id %in% ditch$set_id))
-```
-
-
-Read in SLR rates and join them to the data frame so we can make comparisons.  
+Read in SLR rates and join them to the data frame so we can make comparisons. Also read in reserve information.   
 
 ```{r}
 slr_path <- here::here("data", "01b_reserve_metadata", "slr_rates.csv")
@@ -236,12 +241,37 @@ all_to_compare <- left_join(all_out, to_join, by = "reserve")
 Weed out some columns; generate comparison columns for both 0 and slr.  
 
 ```{r}
-rates_comp <- all_to_compare %>% 
+set_details <- all_to_compare %>% 
+    mutate(
+        # paste together veg columns, omitting NAs
+        dominant_vegetation = pmap_chr(
+            list(co_dominant_species1, co_dominant_species2, co_dominant_species3, co_dominant_species4),
+            ~ paste(na.omit(c(...)), collapse = ", ")),
+        # replace empty strings with "not provided"
+        dominant_vegetation = case_when(dominant_vegetation == "" ~ "Not provided",
+                                        .default = dominant_vegetation),
+        # deal with "deep rod set" consistency
+        set_type = case_when(set_type == "Deep ROD SET" ~ "Deep Rod SET",
+                             .default = set_type),
+        # deal with lack of user friendly set names
+        user_friendly_set_name = case_when(is.na(user_friendly_set_name) ~ set_id,
+                                           .default = user_friendly_set_name),
+        # deal with lack of salinity
+        general_salinity = case_when(is.na(general_salinity) ~ "Not provided",
+                                     .default = general_salinity),
+        # round SLR rates and CIs
+        across(c(rate, CI_low, CI_high,
+         slr_rate, slr_CI_low, slr_CI_high,
+         slr_19yr, yr19_CI_low, yr19_CI_high), function(x) round(x, 3))
+    ) |> 
   select(reserve, 
          set_id, 
          user_friendly_set_name, 
-         numerical_order,
          lat, long, 
+         set_type,
+         dominant_vegetation,
+         general_salinity,
+         start_date, end_date, ts_length,
          rate, CI_low, CI_high,
          slr_rate, slr_CI_low, slr_CI_high,
          slr_19yr, yr19_CI_low, yr19_CI_high) %>% 
@@ -260,12 +290,48 @@ rates_comp <- all_to_compare %>%
                               rate < slr_19yr ~ "dec_nonsig",
                               rate > slr_19yr ~ "inc_nonsig",
                               TRUE ~ "not_enough_info"),
-         set_to_slr = rate / slr_rate,
-         set_to_19yr = rate / slr_19yr) 
+         set_to_slr = round(rate / slr_rate, 3),
+         set_to_19yr = round(rate / slr_19yr, 3)) 
 ```
 
-# SAVE OUT THESE RATES  
-so we can make comparisons to SLR
+```{r}
+reserve_details <- read.csv(here::here("data",
+                                       "NERR Websites.csv"))
+
+reserve_sets <- set_details |> 
+    select(reserve, set_id, dir_0, dir_slr, dir_19yr) |> 
+    pivot_longer(cols = c(dir_0, dir_slr, dir_19yr),
+                 names_to = "compared_to",
+                 names_prefix = "dir_",
+                 values_to = "outcome") |> 
+    summarize(.by = c(reserve, compared_to, outcome),
+              n = n()
+              ) |> 
+    complete(reserve, compared_to, outcome,
+             fill = list(n = 0))
+```
+
+
+Write out.  
+
+```{r}
+write.csv(set_details,
+          here::here("data", "04_rates",
+                     "set_details.csv"),
+          row.names = FALSE)
+
+save(set_details,
+     file = here::here("data",
+                       "04_rates",
+                "rates_and_slr.RData"),
+     compress = "xz")
+```
+
+`rates_and_slr.RData` is what I'll want to use in the app.
+
+# STOP HERE. 
+
+Everything else should be functions or part of the app.  
 
 Summarize the categories.  
 
