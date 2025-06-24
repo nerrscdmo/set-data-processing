@@ -315,19 +315,14 @@ reserve_sets <- set_details |>
 Write out.  
 
 ```{r}
-write.csv(set_details,
-          here::here("data", "04_rates",
-                     "set_details.csv"),
-          row.names = FALSE)
-
-save(set_details,
+save(reserve_sets, reserve_details, set_details,
      file = here::here("data",
                        "04_rates",
-                "rates_and_slr.RData"),
+                "SET_rates_and_details.RData"),
      compress = "xz")
 ```
 
-`rates_and_slr.RData` is what I'll want to use in the app.
+`SET_rates_and_details.RData` is what I'll want to use in the app.
 
 # STOP HERE. 
 
