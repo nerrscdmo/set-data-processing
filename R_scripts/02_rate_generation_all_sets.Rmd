@@ -111,6 +111,26 @@ All fine as of 6/9/2025.
 
 ***
 
+# Generate time series for later graphics  
+
+Average all 36 within a date in order to make a small data frame.
+
+```{r}
+set_avgd_readings <- dat |> 
+    group_by(reserve, set_id, year, month, day) |> 
+    summarize(height_mean = mean(pin_height, na.rm = TRUE),
+           height_sd = sd(pin_height, na.rm = TRUE)) |> 
+    ungroup() |> 
+    filter(!is.na(height_mean)) |> 
+    arrange(reserve, set_id, year, month, day) |> 
+    group_by(reserve, set_id) |> 
+    mutate(height_cumu = height_mean - height_mean[1],
+           date = lubridate::ymd(paste(year, month, day)),
+           across(c(height_mean, height_sd, height_cumu), function(x) round(x, 2))) |> 
+    ungroup() 
+```
+
+
 # Filter by time and number of samples  
 
 Filter to only analyze sites with at least 5 measurements over at least 4.5 years.  
@@ -393,7 +413,7 @@ Write out.
 
 ```{r}
 save(reserve_sets, reserve_details, set_details,
-     reserves_sets_list,
+     reserves_sets_list, set_avgd_readings,
      file = here::here("data",
                        "04_rates",
                 "SET_rates_and_details.RData"),
