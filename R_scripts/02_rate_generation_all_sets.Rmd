@@ -3,9 +3,6 @@ title: "Generating rates of change and CIs for all SETs"
 author: "Kim Cressman"
 date: "`r Sys.Date()`"
 output:
-  word_document:
-    toc: true
-    toc_depth: 2
   pdf_document:
     toc: yes
   html_document:
@@ -379,10 +376,11 @@ for(i in seq_along(reserves)){
                function(x) round(x, 2)),
                longterm = glue::glue("{slr_rate} mm/yr (95% CI: {slr_CI_low} - {slr_CI_high})"),
                yr19 = glue::glue("{slr_19yr} mm/yr (95% CI: {yr19_CI_low} - {yr19_CI_high})")) |> 
-        summarize(.by = c(reserve, longterm, yr19),
+        summarize(.by = c(reserve, slr_rate, slr_19yr, longterm, yr19),  # keep slr rates for later joining if necessary
                n = n())
+    
     set_slr_comps <- res_set_details |> 
-        summarize(.by = c(reserve, rate, dir_slr),
+        summarize(.by = c(reserve, slr_rate, dir_slr),
                   n = n())
     set_19yr_comps <- res_set_details |> 
         summarize(.by = c(reserve, slr_19yr, dir_19yr),
