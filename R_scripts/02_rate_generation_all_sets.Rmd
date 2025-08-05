@@ -333,11 +333,11 @@ reserve_sets <- set_details |>
 set_details <- set_details |> 
     mutate(dir_19yr = factor(dir_19yr, 
                              levels = c("dec_sig", "dec_nonsig", "not_enough_info", "inc_nonsig", "inc_sig"),
-                             labels = c("No, more confident", "No, less confident", "Not enough info",
+                             labels = c("No, more confident", "No, less confident", "Not calculated",
                                         "Yes, less confident", "Yes, more confident")),
            dir_slr = factor(dir_slr, 
                             levels = c("dec_sig", "dec_nonsig", "not_enough_info", "inc_nonsig", "inc_sig"),
-                            labels = c("No, more confident", "No, less confident", "Not enough info",
+                            labels = c("No, more confident", "No, less confident", "Not calculated",
                                        "Yes, less confident", "Yes, more confident")))
 
 
