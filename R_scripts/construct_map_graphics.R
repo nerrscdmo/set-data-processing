@@ -7,14 +7,14 @@ load(here::here("data",
 reserve_sets <- reserve_sets |> 
     mutate(outcome = factor(outcome, 
                             levels = c("dec_sig", "dec_nonsig", "not_enough_info", "inc_nonsig", "inc_sig"),
-                            labels = c("No, more confident", "No, less confident", "Not enough info",
+                            labels = c("No, more confident", "No, less confident", "Not calculated",
                                        "Yes, less confident", "Yes, more confident")))
 
 # color palette ----
 # cols_slr <- c("#d7191c", "#fdae61", "#ffffbf", "#abd9e9", "#2c7bb6") # RdYlBu from colorbrewer
 # cols_slr <- c("#A50026", "#f67e4b", "#feda8b", "#6ea6cd", "#364b9a") # Sunset from Tol
 cols_slr <- c("#b2182b", "#f4a582", "#ffee99", "#92c5de", "#2166ac") # BuRd from Tol
-names(cols_slr) <- c("No, more confident", "No, less confident", "Not enough info",
+names(cols_slr) <- c("No, more confident", "No, less confident", "Not calculated",
                      "Yes, less confident", "Yes, more confident")
 
 save(cols_slr, file = here::here("images", "color_palette.RDS"))
@@ -124,7 +124,7 @@ vertices <- tribble(
 # define colors as keeping up, not keeping up, or not enough info
 up_cols <- cols_slr[which(stringr::str_starts(names(cols_slr), "Yes"))]
 down_cols <- cols_slr[which(stringr::str_starts(names(cols_slr), "No,"))]
-not_cols <- cols_slr[which(names(cols_slr) == "Not enough info")]
+not_cols <- cols_slr[which(names(cols_slr) == "Not calculated")]
 
 # make the up arrows
 for(i in seq_along(up_cols)){
