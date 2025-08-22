@@ -1,3 +1,5 @@
+# after running this script, copy the "images" folder over to the app directory
+
 library(tidyverse)
 
 # data ----
@@ -6,16 +8,16 @@ load(here::here("data",
                 "SET_rates_and_details.RData"))  # this is the same data file to copy to the app
 reserve_sets <- reserve_sets |> 
     mutate(outcome = factor(outcome, 
-                            levels = c("dec_sig", "dec_nonsig", "not_enough_info", "inc_nonsig", "inc_sig"),
-                            labels = c("No, more confident", "No, less confident", "Not calculated",
-                                       "Yes, less confident", "Yes, more confident")))
+                            levels = c("dec_sig", "dec_nonsig", "inc_nonsig", "inc_sig", "not_enough_info"),
+                            labels = c("No, more confident", "No, less confident",
+                                       "Yes, less confident", "Yes, more confident", "Not calculated")))
 
 # color palette ----
 # cols_slr <- c("#d7191c", "#fdae61", "#ffffbf", "#abd9e9", "#2c7bb6") # RdYlBu from colorbrewer
 # cols_slr <- c("#A50026", "#f67e4b", "#feda8b", "#6ea6cd", "#364b9a") # Sunset from Tol
-cols_slr <- c("#b2182b", "#f4a582", "#ffee99", "#92c5de", "#2166ac") # BuRd from Tol
-names(cols_slr) <- c("No, more confident", "No, less confident", "Not calculated",
-                     "Yes, less confident", "Yes, more confident")
+cols_slr <- c("#b2182b", "#f4a582", "#92c5de", "#2166ac", "#ffee99") # BuRd from Tol
+names(cols_slr) <- c("No, more confident", "No, less confident",
+                     "Yes, less confident", "Yes, more confident", "Not calculated")
 
 save(cols_slr, file = here::here("images", "color_palette.RDS"))
 

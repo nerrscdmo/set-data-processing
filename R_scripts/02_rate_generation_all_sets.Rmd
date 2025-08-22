@@ -353,6 +353,7 @@ for(i in seq_along(reserves)){
     res_set_details <- set_details |> 
         filter(reserve == reserves[i])
     
+    # general details of SET landscapes and settings
     set_total <- res_set_details |> 
         summarize(.by = reserve,
                   n = n())
@@ -368,35 +369,74 @@ for(i in seq_along(reserves)){
     set_vegs <- res_set_details |> 
         summarize(.by = c(reserve, dominant_vegetation),
                   n = n())
+    
+    # SLR rates for comparison
     set_slr_rates <- res_set_details |> 
         select(reserve, slr_rate, slr_CI_low, slr_CI_high,
                slr_19yr, yr19_CI_low, yr19_CI_high) |> 
         mutate(across(c(slr_rate, slr_CI_low, slr_CI_high,
                slr_19yr, yr19_CI_low, yr19_CI_high),
-               function(x) round(x, 2)),
-               longterm = glue::glue("{slr_rate} mm/yr (95% CI: {slr_CI_low} - {slr_CI_high})"),
-               yr19 = glue::glue("{slr_19yr} mm/yr (95% CI: {yr19_CI_low} - {yr19_CI_high})")) |> 
-        summarize(.by = c(reserve, slr_rate, slr_19yr, longterm, yr19),  # keep slr rates for later joining if necessary
-               n = n())
+               function(x) round(x, 2))) |> 
+        summarize(.by = c(reserve, slr_rate, slr_CI_low, slr_CI_high,
+               slr_19yr, yr19_CI_low, yr19_CI_high),  
+               n = n()) |> 
+        mutate(longterm = glue::glue("{slr_rate} mm/yr ({slr_CI_low} - {slr_CI_high})"),
+               yr19 = glue::glue("{slr_19yr} mm/yr ({yr19_CI_low} - {yr19_CI_high})")) |> 
+    select(reserve, n, slr_rate, slr_19yr, longterm, yr19) |> 
+    pivot_longer(c(longterm, yr19),
+                 names_to = "comp",
+                 values_to = "Rate") |> 
+    mutate(comp = case_when(comp == "longterm" ~ "Long-term",
+                            comp == "yr19" ~ "Near-term"),
+           Water_Rate = case_when(comp == "Long-term" ~ slr_rate,
+                                  comp == "Near-term" ~ slr_19yr)) |> 
+        rename(Water_Comparison = comp) |> 
+        select(reserve, Water_Comparison, Water_Rate, Rate, n)
     
-    set_slr_comps <- res_set_details |> 
-        summarize(.by = c(reserve, slr_rate, dir_slr),
-                  n = n())
-    set_19yr_comps <- res_set_details |> 
-        summarize(.by = c(reserve, slr_19yr, dir_19yr),
-                  n = n())
+    # summary of comparisons
+    slr_comps <- res_set_details |> 
+        summarize(.by = c(dir_slr, slr_rate),
+                  n = n()) |> 
+        rename(Result = dir_slr,
+               Water_Rate = slr_rate) |> 
+        mutate(Water_Comparison = "Long-term")
+    
+    yr19_comps <- res_set_details |> 
+        summarize(.by = c(dir_19yr, slr_19yr),
+                  n = n()) |> 
+        rename(Result = dir_19yr,
+               Water_Rate = slr_19yr) |> 
+        mutate(Water_Comparison = "Near-term")
+    
+    all_comps <- bind_rows(slr_comps, yr19_comps)
+    
+    comps_wide_withRates <- all_comps |> 
+        arrange(desc(Result)) |> 
+        pivot_wider(names_from = Result,
+                    values_from = n,
+                    values_fill = 0) |> 
+        as.data.frame() |> 
+        left_join(set_slr_rates) |> 
+        relocate(Water_Comparison, Rate) |> 
+        select(-reserve, -Water_Rate) |> 
+        rename(Total = n)
+        
+    
+    
+    # salinity
     set_salinities <- res_set_details |> 
         summarize(.by = c(reserve, general_salinity),
                   n = n()) 
     
+    
+    # combine
     res_set_list <- list(
         total = set_total,
         installations = set_installations,
         types = set_types,
         vegs = set_vegs,
-        slr_rates = set_slr_rates,
-        slr_comps = set_slr_comps,
-        yr19_comps = set_19yr_comps,
+        water_comp_rates = set_slr_rates,
+        water_comp_summaries = comps_wide_withRates,
         salinities = set_salinities
     )
     
